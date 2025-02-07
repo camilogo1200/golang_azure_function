@@ -14,7 +14,7 @@
   },
   "customHandler": {
     "description": {
-      "defaultExecutablePath": "HttpBrokerTrigger/app/handler.exe",
+      "defaultExecutablePath": "HttpBrokerTrigger/app/handler",
       "workingDirectory": "",
       "arguments": []
     },

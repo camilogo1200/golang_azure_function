@@ -2,40 +2,75 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"net/http"
 	"os"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 )
 
-var EVENTHUB_NAMESPACE = os.Getenv("EVENTHUB_NAMESPACE")
-var EVENTHUB_NAME = os.Getenv("EVENTHUB_NAME")
-var EVENTHUB_CONNECTION_STRING = os.Getenv("EVENT_HUB_CONNECTION_STRING")
+var producerClient *azeventhubs.ProducerClient = nil
+var LOG_EVENTS_ACTIVE = os.Getenv("LOG_EVENTS_ACTIVE")
 
-func helloHandler(w http.ResponseWriter, r *http.Request) {
+func checkEnvironmentVars() (string, string) {
+	EVENTHUB_CONNECTION_STRING, isavailable := os.LookupEnv("EVENT_HUB_CONNECTION_STRING")
 
-	//eventHubNamespace := EVENTHUB_NAME
-	eventHubName := EVENTHUB_NAME
+	if !isavailable {
+		log.Printf("Environment Variable Not Declared [EVENTHUB_CONNECTION_STRING] = [%s] }", EVENTHUB_CONNECTION_STRING)
+	}
 
-	defaultAzureCred, err := azidentity.NewDefaultAzureCredential(nil)
+	EVENTHUB_NAME, isavailable := os.LookupEnv("EVENTHUB_NAME")
+
+	if !isavailable {
+		log.Printf("Environment Variable [EVENTHUB_NAME] = [%s] }", EVENTHUB_NAME)
+	}
+	return EVENTHUB_CONNECTION_STRING, EVENTHUB_NAME
+}
+
+func sendDataToEventHub(producerClient *azeventhubs.ProducerClient, bytedata []byte) {
+	batch, err := producerClient.NewEventDataBatch(context.TODO(), nil)
 
 	if err != nil {
 		panic(err)
 	}
 
-	connectionString := EVENTHUB_CONNECTION_STRING
-
-	producerClient, err := azeventhubs.NewProducerClientFromConnectionString(connectionString, eventHubName, nil)
+	// See ExampleProducerClient_AddEventData for more information.
+	err = batch.AddEventData(&azeventhubs.EventData{Body: bytedata}, nil)
 
 	if err != nil {
+		panic(err)
+	}
+
+	err = producerClient.SendEventDataBatch(context.TODO(), batch, nil)
+
+	if err != nil {
+		panic(err)
+	}
+}
+
+func eventHandler(w http.ResponseWriter, r *http.Request) {
+	EVENTHUB_CONNECTION_STRING, EVENTHUB_NAME := checkEnvironmentVars()
+
+	if EVENTHUB_CONNECTION_STRING == "" || EVENTHUB_NAME == "" {
+		panic("Environment Variables not defined")
+	}
+
+	producerClient, err := azeventhubs.NewProducerClientFromConnectionString(EVENTHUB_CONNECTION_STRING, EVENTHUB_NAME, nil)
+
+	if err != nil {
+		log.Printf("Environment Variable [EVENTHUB_NAME] = [%s] }", EVENTHUB_NAME)
 		panic(err)
 	}
 
 	defer producerClient.Close(context.TODO())
-	err = batch.AddEventData(events[i], nil)
-	producerClient.SendEventDataBatch(context.TODO(), batch, nil)
+
+	bytedata, err := io.ReadAll(r.Body)
+
+	if err != nil {
+		panic(err)
+	}
+	sendDataToEventHub(producerClient, bytedata)
 }
 
 func main() {
@@ -44,7 +79,7 @@ func main() {
 		listenAddr = ":" + val
 	}
 
-	http.HandleFunc("/api/HttpBrokerTrigger", helloHandler)
+	http.HandleFunc("/api/HttpBrokerTrigger", eventHandler)
 	log.Printf("About to listen on %s. Go to https://127.0.0.1%s/", listenAddr, listenAddr)
 	log.Fatal(http.ListenAndServe(listenAddr, nil))
 }
